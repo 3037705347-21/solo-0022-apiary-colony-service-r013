@@ -8,7 +8,8 @@ import (
 	"example.com/apiary-colony-service/internal/store"
 )
 
-const InspectionWindow = 14 * 24 * time.Hour
+// DefaultInspectionWindow 是调用方未指定巡检窗口时使用的缺省值。
+const DefaultInspectionWindow = 14 * 24 * time.Hour
 
 type HiveSummary struct {
 	HiveID           string     `json:"hiveId"`
@@ -17,31 +18,35 @@ type HiveSummary struct {
 	LatestConcerns   []string   `json:"latestConcerns"`
 	QueenID          string     `json:"queenId"`
 	QueenMarkColor   string     `json:"queenMarkColor"`
+	NeedsInspection  bool       `json:"needsInspection"`
 }
 
 type Report struct {
-	ApiaryID        string         `json:"apiaryId"`
-	Name            string         `json:"name"`
-	AsOf            time.Time      `json:"asOf"`
-	HiveCount       int            `json:"hiveCount"`
-	StateCounts     map[string]int `json:"stateCounts"`
-	NeedsInspection []string       `json:"needsInspection"`
-	ConcernHives    []string       `json:"concernHives"`
-	LayingQueens    int            `json:"layingQueens"`
-	Hives           []HiveSummary  `json:"hives"`
+	ApiaryID             string         `json:"apiaryId"`
+	Name                 string         `json:"name"`
+	AsOf                 time.Time      `json:"asOf"`
+	InspectionWindowDays int            `json:"inspectionWindowDays"`
+	HiveCount            int            `json:"hiveCount"`
+	StateCounts          map[string]int `json:"stateCounts"`
+	NeedsInspection      []string       `json:"needsInspection"`
+	ConcernHives         []string       `json:"concernHives"`
+	LayingQueens         int            `json:"layingQueens"`
+	Hives                []HiveSummary  `json:"hives"`
 }
 
-// BuildReport 在单份快照上完成聚合，保证计数与逐蜂箱摘要来自同一视图。
-func BuildReport(snapshot store.Snapshot, apiary domain.Apiary, asOf time.Time) Report {
+// BuildReport 在单份快照上按同一个 asOf 与巡检窗口完成聚合，
+// 保证计数、待巡检集合与逐蜂箱摘要来自同一视图。
+func BuildReport(snapshot store.Snapshot, apiary domain.Apiary, asOf time.Time, window time.Duration) Report {
 	asOf = asOf.UTC()
 	report := Report{
-		ApiaryID:        apiary.ID,
-		Name:            apiary.Name,
-		AsOf:            asOf,
-		StateCounts:     initialStateCounts(),
-		NeedsInspection: []string{},
-		ConcernHives:    []string{},
-		Hives:           []HiveSummary{},
+		ApiaryID:             apiary.ID,
+		Name:                 apiary.Name,
+		AsOf:                 asOf,
+		InspectionWindowDays: int(window / (24 * time.Hour)),
+		StateCounts:          initialStateCounts(),
+		NeedsInspection:      []string{},
+		ConcernHives:         []string{},
+		Hives:                []HiveSummary{},
 	}
 	hives := snapshot.ApiaryHives(apiary.ID)
 	report.HiveCount = len(hives)
@@ -66,7 +71,8 @@ func BuildReport(snapshot store.Snapshot, apiary domain.Apiary, asOf time.Time) 
 				report.ConcernHives = append(report.ConcernHives, hive.ID)
 			}
 		}
-		if NeedsInspection(hive, asOf) {
+		if needsInspection(hive, asOf, window) {
+			summary.NeedsInspection = true
 			report.NeedsInspection = append(report.NeedsInspection, hive.ID)
 		}
 		report.Hives = append(report.Hives, summary)
@@ -76,12 +82,12 @@ func BuildReport(snapshot store.Snapshot, apiary domain.Apiary, asOf time.Time) 
 	return report
 }
 
-// NeedsInspection 判定蜂箱是否需要巡检：从未巡检，或距 asOf 超过巡检窗口。
-func NeedsInspection(hive domain.Hive, asOf time.Time) bool {
+// needsInspection 判定蜂箱是否需要巡检：从未巡检，或距 asOf 超过巡检窗口。
+func needsInspection(hive domain.Hive, asOf time.Time, window time.Duration) bool {
 	if hive.LastInspectionAt == nil {
 		return true
 	}
-	return asOf.Sub(hive.LastInspectionAt.UTC()) > InspectionWindow
+	return asOf.Sub(hive.LastInspectionAt.UTC()) > window
 }
 
 func initialStateCounts() map[string]int {

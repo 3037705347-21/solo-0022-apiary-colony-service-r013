@@ -206,7 +206,8 @@ func checkReadApiaryStatus(c *client) error {
 		return err
 	}
 	report, err := c.expect("GET", "/apiaries/apiary-north/status?asOf=2026-04-12T00:00:00Z", nil, 200,
-		`"hiveCount":3`, `"colonized":2`, `"production":1`, `"layingQueens":0`)
+		`"hiveCount":3`, `"colonized":2`, `"production":1`, `"layingQueens":0`,
+		`"asOf":"2026-04-12T00:00:00Z"`, `"inspectionWindowDays":14`)
 	if err != nil {
 		return err
 	}
@@ -220,6 +221,41 @@ func checkReadApiaryStatus(c *client) error {
 	}
 	if err := report.mustOrder(`"hiveId":"hive-01"`, `"hiveId":"hive-02"`); err != nil {
 		return err
+	}
+	if err := report.mustOrder(`"hiveId":"hive-01"`, `"needsInspection":false`); err != nil {
+		return err
+	}
+	// 缩短窗口后 hive-01 也进入待巡检，且逐蜂箱摘要与待巡检集合来自同一视图。
+	shortWindow, err := c.expect("GET",
+		"/apiaries/apiary-north/status?asOf=2026-04-12T00:00:00Z&inspectionWindowDays=1", nil, 200,
+		`"inspectionWindowDays":1`, `"needsInspection":["hive-01","hive-02","hive-03"]`)
+	if err != nil {
+		return err
+	}
+	if err := shortWindow.mustOrder(`"hiveId":"hive-01"`, `"needsInspection":true`); err != nil {
+		return err
+	}
+	// 同一 asOf 与窗口重复读取，结果必须可复现。
+	replay, err := c.call("GET", "/apiaries/apiary-north/status?asOf=2026-04-12T00:00:00Z&inspectionWindowDays=1", nil)
+	if err != nil {
+		return err
+	}
+	if replay.text() != shortWindow.text() {
+		return fmt.Errorf("相同 asOf 与窗口的重复读取结果不一致：%s vs %s", shortWindow.text(), replay.text())
+	}
+	// 拉长窗口不改变计数与摘要的视图来源，待巡检集合回到缺省形态。
+	if _, err := c.expect("GET",
+		"/apiaries/apiary-north/status?asOf=2026-04-12T00:00:00Z&inspectionWindowDays=30", nil, 200,
+		`"inspectionWindowDays":30`, `"needsInspection":["hive-02","hive-03"]`,
+		`"concernHives":["hive-01"]`); err != nil {
+		return err
+	}
+	// 非法窗口必须返回校验错误，不能静默退回缺省值。
+	for _, bad := range []string{"0", "-2", "abc", "3651"} {
+		if _, err := c.expect("GET", "/apiaries/apiary-north/status?inspectionWindowDays="+bad, nil, 400,
+			`"code":"invalid_request"`); err != nil {
+			return err
+		}
 	}
 	if _, err := c.expect("GET", "/apiaries/apiary-missing/status", nil, 404, `"code":"not_found"`); err != nil {
 		return err

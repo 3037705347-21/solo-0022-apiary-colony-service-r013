@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"example.com/apiary-colony-service/internal/domain"
+	"example.com/apiary-colony-service/internal/status"
 )
 
 func (s *Server) handleApiaryStatus(w http.ResponseWriter, r *http.Request) {
@@ -12,7 +13,12 @@ func (s *Server) handleApiaryStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	report, err := s.deps.Status.ApiaryStatus(r.PathValue("apiaryId"), asOf)
+	window, err := parseOptionalInspectionWindow("inspectionWindowDays", r.URL.Query().Get("inspectionWindowDays"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	report, err := s.deps.Status.ApiaryStatus(r.PathValue("apiaryId"), status.Query{AsOf: asOf, Window: window})
 	if err != nil {
 		writeError(w, err)
 		return

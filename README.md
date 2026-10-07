@@ -52,8 +52,9 @@ go run ./cmd/check -workflow read-apiary-status
 - `POST /hives/{hiveId}/queens`：输入 `origin`、`introducedAt`（可选）、`reason`，
   返回带标记色的新蜂王记录。
 - `GET /hives/{hiveId}/queens`：列出蜂王记录。
-- `GET /apiaries/{apiaryId}/status`：可选查询参数 `asOf`（RFC3339），返回状态计数、
-  待巡检蜂箱、有未处理关注项的蜂箱与逐蜂箱摘要。
+- `GET /apiaries/{apiaryId}/status`：可选查询参数 `asOf`（RFC3339）与 `inspectionWindowDays`
+  （正整数天数，缺省 14），返回状态计数、待巡检蜂箱、有未处理关注项的蜂箱与逐蜂箱摘要；
+  响应带回本次使用的 `asOf` 与 `inspectionWindowDays`，逐蜂箱摘要含 `needsInspection` 标记。
 
 错误响应统一为：
 
@@ -72,7 +73,8 @@ go run ./cmd/check -workflow read-apiary-status
 - 蜂王标记色由引入年份个位推导：`1/6` 白、`2/7` 黄、`3/8` 红、`4/9` 绿、`5/0` 蓝。
 - 巡检关注项阈值：螨计数 ≥ 9 记 `mite_load`，子脾为 `none` 记 `brood_gap`，
   性情为 `aggressive` 记 `temper_risk`，群势 ≤ 2 记 `low_strength`。
-- 待巡检：从未巡检，或距 `asOf` 超过 14 天。
+- 待巡检：从未巡检，或距 `asOf` 超过巡检窗口；窗口缺省 14 天，可用 `inspectionWindowDays`
+  按次指定，非法取值返回校验错误。
 
 ## 环境变量
 
