@@ -213,6 +213,8 @@ func checkReadApiaryStatus(c *client) error {
 	for _, fragment := range []string{
 		`"needsInspection":["hive-02","hive-03"]`,
 		`"concernHives":["hive-01"]`,
+		`"asOf":"2026-04-12T00:00:00Z"`,
+		`"inspectionWindow":"14d"`,
 	} {
 		if !strings.Contains(report.text(), fragment) {
 			return fmt.Errorf("状态汇总缺少 %q：%s", fragment, report.text())
@@ -220,6 +222,48 @@ func checkReadApiaryStatus(c *client) error {
 	}
 	if err := report.mustOrder(`"hiveId":"hive-01"`, `"hiveId":"hive-02"`); err != nil {
 		return err
+	}
+	// 更短窗口：hive-01 距 asOf 已 39 小时，1 天窗口下进入待巡检，
+	// 且同一响应内逐蜂箱摘要与计数仍来自同一视图。
+	if _, err := c.expect("GET",
+		"/apiaries/apiary-north/status?asOf=2026-04-12T00:00:00Z&inspectionWindow=1d", nil, 200,
+		`"inspectionWindow":"1d"`,
+		`"needsInspection":["hive-01","hive-02","hive-03"]`,
+		`"concernHives":["hive-01"]`,
+		`"hiveCount":3`); err != nil {
+		return err
+	}
+	// 更长窗口：30 天窗口下待巡检集合收窄，窗口回显与请求一致。
+	if _, err := c.expect("GET",
+		"/apiaries/apiary-north/status?asOf=2026-04-12T00:00:00Z&inspectionWindow=30d", nil, 200,
+		`"inspectionWindow":"30d"`,
+		`"needsInspection":["hive-02","hive-03"]`); err != nil {
+		return err
+	}
+	// 小时级窗口：36 小时窗口同样判定 hive-01 待巡检；同一 asOf 与窗口重复读取，响应逐字节一致。
+	windowedPath := "/apiaries/apiary-north/status?asOf=2026-04-12T00:00:00Z&inspectionWindow=36h"
+	if _, err := c.expect("GET", windowedPath, nil, 200,
+		`"inspectionWindow":"36h"`,
+		`"needsInspection":["hive-01","hive-02","hive-03"]`); err != nil {
+		return err
+	}
+	first, err := c.call("GET", windowedPath, nil)
+	if err != nil {
+		return err
+	}
+	second, err := c.call("GET", windowedPath, nil)
+	if err != nil {
+		return err
+	}
+	if first.text() != second.text() {
+		return fmt.Errorf("同一 asOf 与窗口的重复读取结果不一致：%s vs %s", first.text(), second.text())
+	}
+	// 非法窗口必须报错，不得静默回退到默认窗口。
+	for _, bad := range []string{"not-a-window", "-3d", "0h", "14"} {
+		if _, err := c.expect("GET", "/apiaries/apiary-north/status?inspectionWindow="+bad, nil, 400,
+			`"code":"invalid_request"`, `"field":"inspectionWindow"`); err != nil {
+			return err
+		}
 	}
 	if _, err := c.expect("GET", "/apiaries/apiary-missing/status", nil, 404, `"code":"not_found"`); err != nil {
 		return err

@@ -7,12 +7,18 @@ import (
 )
 
 func (s *Server) handleApiaryStatus(w http.ResponseWriter, r *http.Request) {
-	asOf, err := parseOptionalTime("asOf", r.URL.Query().Get("asOf"))
+	query := r.URL.Query()
+	asOf, err := parseOptionalTime("asOf", query.Get("asOf"))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	report, err := s.deps.Status.ApiaryStatus(r.PathValue("apiaryId"), asOf)
+	window, err := parseOptionalWindow("inspectionWindow", query.Get("inspectionWindow"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	report, err := s.deps.Status.ApiaryStatus(r.PathValue("apiaryId"), asOf, window)
 	if err != nil {
 		writeError(w, err)
 		return

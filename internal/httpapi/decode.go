@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"example.com/apiary-colony-service/internal/domain"
@@ -40,4 +42,33 @@ func parseOptionalTime(field, value string) (*time.Time, error) {
 	}
 	utc := parsed.UTC()
 	return &utc, nil
+}
+
+// parseOptionalWindow 解析可缺省的巡检窗口参数，支持 "14d" 天数写法与 "168h" 等
+// 标准时长写法。缺省返回 nil 交由调用方取默认窗口；无法解析或非正的取值返回
+// 校验错误，绝不静默回退到默认窗口。
+func parseOptionalWindow(field, value string) (*time.Duration, error) {
+	trimmed := domain.TrimText(value)
+	if trimmed == "" {
+		return nil, nil
+	}
+	window, err := parseWindow(trimmed)
+	if err != nil {
+		return nil, domain.Invalid(field, "%s 必须是正时长（如 14d、168h）", field)
+	}
+	if window <= 0 {
+		return nil, domain.Invalid(field, "%s 必须为正时长", field)
+	}
+	return &window, nil
+}
+
+func parseWindow(value string) (time.Duration, error) {
+	if days, ok := strings.CutSuffix(value, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(value)
 }
